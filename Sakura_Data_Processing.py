@@ -22,6 +22,7 @@
 # +
 import pandas as pd
 import numpy as np
+import time
 
 from googletrans import Translator
 # -
@@ -63,6 +64,7 @@ sakura_spotinfo_remove = pd.read_csv('specification_sakura_pref/biz_sakura_spoti
 
 # +
 translator = Translator()
+translator.raise_Exception = True
 
 pref_map = pd.DataFrame(sakura_spotinfo['Prefecture'].unique(), columns=['jp'])
 
@@ -72,6 +74,8 @@ pref_map['en'] = pref_map['jp'].apply(translator.translate).apply(getattr, args=
 prefectures = pref_map.set_index('jp').to_dict()['en']
 
 sakura_spotinfo.Prefecture = sakura_spotinfo['Prefecture'].map(prefectures)
+
+
 # -
 
 # Commenting out the code below for now. It's not so much an issue with the code, but an issue with trying to run too much data thru google translate. 
@@ -79,13 +83,26 @@ sakura_spotinfo.Prefecture = sakura_spotinfo['Prefecture'].map(prefectures)
 # I need to either figure out a way to get the google translate extension to translate batches slower, or do some sort of batch processing myself on the data frame (i.e. break it up into chunks of applies, if that's possible).
 #
 
+def batch_translation(df, column_src, batch_size=100):
+    idx = 0
+    while idx < df[column_src].size:
+        # Spawn a new translator session to see if that gets past the 429 code from Google.
+        translator = Translator()
+        translator.raise_Exception = True
+        df.loc[idx:idx+batch_size,column_src] = df.loc[idx:idx+batch_size,column_src].apply(translator.translate).apply(getattr, args=('text',))
+        idx = idx+batch_size
+        print(f"Current index: {idx} of {df[column_src].size}")
+        time.sleep(10)
+
+
+
+batch_translation(sakura_spotinfo, 'Point name', 100)
 #pref_codes['Prefecture'] = pref_codes['Prefecture'].apply(translator.translate).apply(getattr, args=('text',))
 #sakura_spotinfo['Point name'] = sakura_spotinfo['Point name'].apply(translator.translate).apply(getattr, args=('text',))
 #sakura_spotinfo['Prefecture'] = sakura_spotinfo['Prefecture'].apply(translator.translate).apply(getattr, args=('text',))
 
 
-pref_codes.head()
-sakura_spotinfo.head()
+sakura_spotinfo.head(10)
 
 # ## Sample testing
 
