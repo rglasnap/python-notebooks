@@ -13,8 +13,8 @@
 #     name: python3
 # ---
 
-# # Sakura Data Processing
-# I obtained this data from the Japan Meterological Corporation from this page: https://ods.n-kishou.co.jp/detail?pid=2407
+# # Sakura Data Processing (Japan Meteorological Corporation)
+# I obtained this data from the Japan Meteorological Corporation from this page: https://ods.n-kishou.co.jp/detail?pid=2407
 #
 # My intent is to process the data (and likely translate) the data into a CSV that I can then load in a separate notebook for analysis and prediction.
 #
