@@ -37,28 +37,23 @@ bloom_req = requests.get('https://www.data.jma.go.jp/sakura/data/sakura003_06.ht
 bloom_content = BeautifulSoup(bloom_req.content, 'lxml')
 
 # +
-colspecs = [(0,5),(5,9),(9,16),(16,23),(23,30),(30,37),(37,44),(44,51),(51,58),(58,65),(65,72),(72,80),(80,87),(87,None)]
+colspecs = [(0,5),(5,9),(9,16),(16,23),(23,30),(30,37),(37,44),(44,51),(51,58),(58,65),(65,72),(72,78),(78,86),(86,None)]
 #print(bloom_content.find(id='main').pre.text)
 bloom_string = StringIO(bloom_content.find(id='main').pre.text)
-#print(bloom_string.getvalue())
-#derp = pd.read_csv(bloom_string,sep=r"[ ]{2,}", engine='c')
-unparsed_data = pd.read_fwf(bloom_string,header=0,colspecs=colspecs,
-                           parse_dates=['2011','2012'],infer_datetime_format=True,
-                           true_values=['*'])
+print(bloom_string.getvalue())
 
-unparsed_data.head()
-# -
+unparsed_data = pd.read_fwf(bloom_string,header=0,colspecs=colspecs,true_values=['*'])
 
 unparsed_data[unparsed_data.duplicated()]
-
 unparsed_data = unparsed_data.drop_duplicates()
-#print(unparsed_data.iloc[5:8].apply(lambda x: x.to_string(index=False)))
 
-raw_headers = StringIO(unparsed_data.loc[:1,0].to_string(index=False))
-raw_data = StringIO(unparsed_data.loc[2:,0].to_string(index=False))
-print(raw_data.getvalue())
-test_data = pd.read_fwf(raw_data,header=None,colspecs=colspecs)
+for col in unparsed_data:
+    if str.isnumeric(col):
+        unparsed_data[col] = unparsed_data[col] + f' {col}'
+        unparsed_data[col] = pd.to_datetime(unparsed_data[col],errors='coerce',format="%m %d %Y")
+# -
 
-test_data.head(10)
+with pd.option_context('display.max_rows', None):
+    display(unparsed_data)
 
 
