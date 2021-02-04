@@ -67,11 +67,34 @@ def process_sakura_url(url,batch=False,pause_length=2):
     # Convert the text table to a string IO so that pandas can read it in.
     #print(bloom_content.find(id='main').pre.text)
     bloom_string = StringIO(bloom_content.find(id='main').pre.text)
+
+    #Find the first real line so we can dynmiacally determine the column spacings
+    for line in bloom_string:
+        if line.isspace() == False:
+            break;
+
+    #Find all of the character locations of each year
+    year_iter = re.finditer("\d{4}", line)
+    year_indices = [(m.start(0),m.end(0)+2) for m in year_iter]
+
+    #Pick the ending character of the last year so we can add the last two columns.
+    end_char = year_indices[-1][1]
+
+    dynamic_colspecs = [(0,5),(5,9)]
+    end_colspecs = [(end_char,end_char+8),(end_char+8,None)]
+
+    # Put everything together in the same list
+    dynamic_colspecs.extend(year_indices)
+    dynamic_colspecs.extend(end_colspecs)
+
+    # Reset the string stream so we can re-parse the entire thing.
+    bloom_string.seek(0)
+    
     
     if debug_print:
         print(bloom_string.getvalue())
 
-    unparsed_data = pd.read_fwf(bloom_string,header=0,colspecs=colspecs,true_values=['*'])
+    unparsed_data = pd.read_fwf(bloom_string,header=0,colspecs=dynamic_colspecs,true_values=['*'])
 
     # Get rid of the extra headers that showed up for readability on a web page.
     unparsed_data.columns = unparsed_data.columns.str.strip()
@@ -102,7 +125,6 @@ def process_sakura_url(url,batch=False,pause_length=2):
             
     return unparsed_data
 
-
 # +
 debug_print = False
 bloom_urls = ['https://www.data.jma.go.jp/sakura/data/sakura003_00.html',
@@ -116,18 +138,36 @@ bloom_urls = ['https://www.data.jma.go.jp/sakura/data/sakura003_00.html',
 bloom_dfs = [process_sakura_url(x,batch=True) for x in bloom_urls]
 # -
 concated = pd.concat(bloom_dfs,axis=1)
+concated.drop_duplicates(inplace=True)
 concated.head()
 
 
+concated.columns
+
+debug_print = True
+process_sakura_url('https://www.data.jma.go.jp/sakura/data/sakura003_01.html')
+
 # +
 import re
+debug_print = True
+
+bloom_req = requests.get('https://www.data.jma.go.jp/sakura/data/sakura003_06.html')
+bloom_content = BeautifulSoup(bloom_req.content, 'lxml')
+
+# Convert the text table to a string IO so that pandas can read it in.
+#print(bloom_content.find(id='main').pre.text)
+bloom_string = StringIO(bloom_content.find(id='main').pre.text)
 
 String = '地点名　     1953   1954   1955   1956   1957   1958   1959   1960   平年値   代替種目'
 String2 = '地点名　     2011   2012   2013   2014   2015   2016   2017   2018   2019   2020   平年値   代替種目'
 
-iter = re.finditer("\d{4}", String)
-indices = [(m.start(0),m.end(0)+2) for m in iter]
-print(indices)
+for line in bloom_string:
+    if line.isspace() == False:
+        break;
+
+iter = re.finditer("\d{4}", line)
+indices = [(m.start(0),m.end(0)+3) for m in iter]
+#print(indices)
 
 end_char = indices[-1][1]
 
@@ -139,22 +179,17 @@ base_colspecs.extend(indices)
 base_colspecs.extend(end_colspecs)
 print(base_colspecs)
 
-# +
-debug_print = True
+bloom_string.seek(0)
 
-bloom_req = requests.get('https://www.data.jma.go.jp/sakura/data/sakura003_00.html')
-bloom_content = BeautifulSoup(bloom_req.content, 'lxml')
-
-# Convert the text table to a string IO so that pandas can read it in.
-#print(bloom_content.find(id='main').pre.text)
-bloom_string = StringIO(bloom_content.find(id='main').pre.text)
-    
 if debug_print:
     print(bloom_string.getvalue())
 
 tst_names = ['地点名', 'Unnamed: 1', '1953', '1954', '1955','1956','1957','1958','1959','1960','平年値','代替種目']
 unparsed_data = pd.read_fwf(bloom_string,header=0,colspecs=base_colspecs,true_values=['*'])
-unparsed_data.head(10)
+with pd.option_context('display.max_rows', None):
+    if debug_print:
+        display(unparsed_data)
 # -
+unparsed_data.columns[-2]
 
 
