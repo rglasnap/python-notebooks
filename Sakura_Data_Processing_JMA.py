@@ -47,6 +47,7 @@ import urllib
 import requests
 from bs4 import BeautifulSoup
 import lxml
+import time
 from io import StringIO
 
 # Workaround because I'm on an old version of pandas
@@ -54,10 +55,12 @@ pd.set_option("display.max_colwidth", 10000)
 
 
 ##TODO: Fix up some of the variable names (most notable unparsed_data)
-def process_sakura_url(url):
+def process_sakura_url(url,batch=False,pause_length=2):    
     colspecs = [(0,5),(5,9),(9,16),(16,23),(23,30),(30,37),(37,44),(44,51),(51,58),(58,65),(65,72),(72,78),(78,86),(86,None)]
 
-    # 
+    # Be nice to the endpoint and wait a bit if we're doing batch processing of multiple function calls. 
+    if batch:
+        time.sleep(pause_length)
     bloom_req = requests.get(url)
     bloom_content = BeautifulSoup(bloom_req.content, 'lxml')
 
@@ -91,6 +94,8 @@ def process_sakura_url(url):
                           unparsed_data.columns[-2]: '30 Year Average 1981-2010',
                           unparsed_data.columns[-1]: 'Notes' }, inplace=True)
     
+    unparsed_data.set_index('Site Name',inplace=True)
+    
     with pd.option_context('display.max_rows', None):
         if debug_print:
             display(unparsed_data)
@@ -99,9 +104,57 @@ def process_sakura_url(url):
 
 
 # +
+debug_print = False
+bloom_urls = ['https://www.data.jma.go.jp/sakura/data/sakura003_00.html',
+                     'https://www.data.jma.go.jp/sakura/data/sakura003_01.html',
+                     'https://www.data.jma.go.jp/sakura/data/sakura003_02.html',
+                     'https://www.data.jma.go.jp/sakura/data/sakura003_03.html',
+                     'https://www.data.jma.go.jp/sakura/data/sakura003_04.html',
+                     'https://www.data.jma.go.jp/sakura/data/sakura003_05.html',
+                     'https://www.data.jma.go.jp/sakura/data/sakura003_06.html']
+
+bloom_dfs = [process_sakura_url(x,batch=True) for x in bloom_urls]
+# -
+concated = pd.concat(bloom_dfs,axis=1)
+concated.head()
+
+
+# +
+import re
+
+String = '地点名　     1953   1954   1955   1956   1957   1958   1959   1960   平年値   代替種目'
+String2 = '地点名　     2011   2012   2013   2014   2015   2016   2017   2018   2019   2020   平年値   代替種目'
+
+iter = re.finditer("\d{4}", String)
+indices = [(m.start(0),m.end(0)+2) for m in iter]
+print(indices)
+
+end_char = indices[-1][1]
+
+base_colspecs = [(0,5),(5,9)]
+end_colspecs = [(end_char,end_char+8),(end_char+8,None)]
+
+original_colspecs = [(0,5),(5,9),(9,16),(16,23),(23,30),(30,37),(37,44),(44,51),(51,58),(58,65),(65,72),(72,78),(78,86),(86,None)]
+base_colspecs.extend(indices)
+base_colspecs.extend(end_colspecs)
+print(base_colspecs)
+
+# +
 debug_print = True
 
-latest_df = process_sakura_url('https://www.data.jma.go.jp/sakura/data/sakura003_06.html')
+bloom_req = requests.get('https://www.data.jma.go.jp/sakura/data/sakura003_00.html')
+bloom_content = BeautifulSoup(bloom_req.content, 'lxml')
+
+# Convert the text table to a string IO so that pandas can read it in.
+#print(bloom_content.find(id='main').pre.text)
+bloom_string = StringIO(bloom_content.find(id='main').pre.text)
+    
+if debug_print:
+    print(bloom_string.getvalue())
+
+tst_names = ['地点名', 'Unnamed: 1', '1953', '1954', '1955','1956','1957','1958','1959','1960','平年値','代替種目']
+unparsed_data = pd.read_fwf(bloom_string,header=0,colspecs=base_colspecs,true_values=['*'])
+unparsed_data.head(10)
 # -
 
 
