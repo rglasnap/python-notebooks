@@ -48,6 +48,7 @@ import requests
 from bs4 import BeautifulSoup
 import lxml
 import time
+import re
 from io import StringIO
 
 # Workaround because I'm on an old version of pandas
@@ -56,7 +57,7 @@ pd.set_option("display.max_colwidth", 10000)
 
 ##TODO: Fix up some of the variable names (most notable unparsed_data)
 def process_sakura_url(url,batch=False,pause_length=2):    
-    colspecs = [(0,5),(5,9),(9,16),(16,23),(23,30),(30,37),(37,44),(44,51),(51,58),(58,65),(65,72),(72,78),(78,86),(86,None)]
+    #colspecs = [(0,5),(5,9),(9,16),(16,23),(23,30),(30,37),(37,44),(44,51),(51,58),(58,65),(65,72),(72,78),(78,86),(86,None)]
 
     # Be nice to the endpoint and wait a bit if we're doing batch processing of multiple function calls. 
     if batch:
@@ -64,6 +65,7 @@ def process_sakura_url(url,batch=False,pause_length=2):
     bloom_req = requests.get(url)
     bloom_content = BeautifulSoup(bloom_req.content, 'lxml')
 
+    print(f"Processing: {bloom_content.title.text}")
     # Convert the text table to a string IO so that pandas can read it in.
     #print(bloom_content.find(id='main').pre.text)
     bloom_string = StringIO(bloom_content.find(id='main').pre.text)
@@ -94,36 +96,51 @@ def process_sakura_url(url,batch=False,pause_length=2):
     if debug_print:
         print(bloom_string.getvalue())
 
-    unparsed_data = pd.read_fwf(bloom_string,header=0,colspecs=dynamic_colspecs,true_values=['*'])
+    bloom_df = pd.read_fwf(bloom_string,header=0,colspecs=dynamic_colspecs,true_values=['*'])
 
     # Get rid of the extra headers that showed up for readability on a web page.
-    unparsed_data.columns = unparsed_data.columns.str.strip()
+    bloom_df.columns = bloom_df.columns.str.strip()
 
-    unparsed_data[unparsed_data.duplicated()]
-    unparsed_data = unparsed_data.drop_duplicates()
+    bloom_df[bloom_df.duplicated()]
+    bloom_df = bloom_df.drop_duplicates()
     
-    unparsed_data.drop(unparsed_data.loc[unparsed_data['地点名'].isna()].index, inplace=True)
-    unparsed_data.drop(unparsed_data[unparsed_data['地点名'].str.contains('地点名')].index, inplace=True)
+    bloom_df.drop(bloom_df.loc[bloom_df['地点名'].isna()].index, inplace=True)
+    bloom_df.drop(bloom_df[bloom_df['地点名'].str.contains('地点名')].index, inplace=True)
 
     #Parse the year columns into datetime format.
-    for col in unparsed_data:
+    for col in bloom_df:
         if str.isnumeric(col):
-            unparsed_data[col] = unparsed_data[col] + f' {col}'
-            unparsed_data[col] = pd.to_datetime(unparsed_data[col],errors='coerce',format="%m %d %Y")
+            # Account for the # entries (which are usually dates measured in december)
+            if bloom_df[col].str.contains('#').any():
+                last_year = bloom_df[col].str.contains('#',na=False)
+                this_year = ~bloom_df[col].str.contains('#',na=False)
+                
+                bloom_df.loc[last_year,col] = bloom_df.loc[last_year,col] + f' {int(col)-1}'
+                bloom_df.loc[this_year,col] = bloom_df.loc[this_year,col] + f' {col}'
+                bloom_df[col] = bloom_df[col].str.replace("#","")
+            else:
+                bloom_df[col] = bloom_df[col] + f' {col}'
+            bloom_df[col] = pd.to_datetime(bloom_df[col],errors='coerce',format="%m %d %Y")
+            #TODO: Add in a check for dates that got parsed incorrectly
+            #   Data Assertion: No dates should exist in the current year after October. If they exist, they should be in the previous year.
 
     # Translate the non date columns
-    unparsed_data.rename(columns={unparsed_data.columns[0]: 'Site Name',
+    bloom_df.rename(columns={bloom_df.columns[0]: 'Site Name',
                           'Unnamed: 1': 'Currently Being Observed',
-                          unparsed_data.columns[-2]: '30 Year Average 1981-2010',
-                          unparsed_data.columns[-1]: 'Notes' }, inplace=True)
+                          bloom_df.columns[-2]: '30 Year Average 1981-2010',
+                          bloom_df.columns[-1]: 'Notes' }, inplace=True)
     
-    unparsed_data.set_index('Site Name',inplace=True)
+    bloom_df.set_index('Site Name',inplace=True)
+    
+    #Fix stray #'s
+    # Note: There's probably a better way of doing this, but I haven't found it yet.
+    bloom_df['30 Year Average 1981-2010'] = bloom_df['30 Year Average 1981-2010'].str.replace("#","")
     
     with pd.option_context('display.max_rows', None):
         if debug_print:
-            display(unparsed_data)
+            display(bloom_df)
             
-    return unparsed_data
+    return bloom_df
 
 # +
 debug_print = False
@@ -142,16 +159,46 @@ concated.drop_duplicates(inplace=True)
 concated.head()
 
 
-concated.columns
+# +
+testing = process_sakura_url('https://www.data.jma.go.jp/sakura/data/sakura003_03.html')
+
+testing.tail()
+# -
+
+
+
+concated.T.loc[concated.T.duplicated()]
+
+transposed = concated.T.drop_duplicates(keep='last')
+transposed.T.columns
+
+# +
+with pd.option_context('display.max_rows', None):
+    display(concated.loc['名護','30 Year Average 1981-2010'])
+    
+concated.loc['名護','30 Year Average 1981-2010'].str.contains('#').any()
+
+derp = '2019'
+
+for entry in concated.loc['名護','30 Year Average 1981-2010']:
+    if '#' in entry:
+         print(entry)
+
+# +
+untransposed = transposed.T
+
+with pd.option_context('display.max_rows', None):
+    display(untransposed['30 Year Average 1981-2010'])
+# -
 
 debug_print = True
-process_sakura_url('https://www.data.jma.go.jp/sakura/data/sakura003_01.html')
+#process_sakura_url('https://www.data.jma.go.jp/sakura/data/sakura003_01.html')
 
 # +
 import re
-debug_print = True
+debug_print = False
 
-bloom_req = requests.get('https://www.data.jma.go.jp/sakura/data/sakura003_06.html')
+bloom_req = requests.get('https://www.data.jma.go.jp/sakura/data/sakura003_03.html')
 bloom_content = BeautifulSoup(bloom_req.content, 'lxml')
 
 # Convert the text table to a string IO so that pandas can read it in.
@@ -189,7 +236,22 @@ unparsed_data = pd.read_fwf(bloom_string,header=0,colspecs=base_colspecs,true_va
 with pd.option_context('display.max_rows', None):
     if debug_print:
         display(unparsed_data)
+# +
+col = '1990'
+
+has_stuff = unparsed_data[col].str.contains('#',na=False)
+no_stuff = ~unparsed_data[col].str.contains('#',na=False)
+#unparsed_data.loc[~unparsed_data[col].str.contains('#',na=False),col] = unparsed_data.loc[~unparsed_data[col].str.contains('#',na=False),col] + f' {int(col)-1}'
 # -
-unparsed_data.columns[-2]
+
+unparsed_data.loc[has_stuff,col] = unparsed_data.loc[has_stuff,col].str.strip('#') + f' {int(col)-1}'
+
+# +
+unparsed_data.loc[has_stuff,'1989'].str.replace("#","")
+
+
+# -
+
+bloom_content.title.text
 
 
