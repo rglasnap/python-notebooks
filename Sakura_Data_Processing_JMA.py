@@ -41,6 +41,7 @@
 # 注: This denotes some sort of change in observation. I'm still working on the translation.
 #
 
+# +
 import pandas as pd
 import numpy as np
 import urllib
@@ -51,11 +52,25 @@ import time
 import re
 from io import StringIO
 
+from googletrans import Translator
+# -
+
 # Workaround because I'm on an old version of pandas
 pd.set_option("display.max_colwidth", 10000)
 
 
-##TODO: Fix up some of the variable names (most notable unparsed_data)
+def batch_translation(df, column_src, batch_size=100):
+    idx = 0
+    while idx < df[column_src].size:
+        # Spawn a new translator session to see if that gets past the 429 code from Google.
+        translator = Translator()
+        translator.raise_Exception = True
+        df.loc[idx:idx+batch_size,column_src] = df.loc[idx:idx+batch_size,column_src].apply(translator.translate, src='ja').apply(getattr, args=('text',))
+        idx = idx+batch_size
+        print(f"Current index: {idx} of {df[column_src].size}")
+        time.sleep(10)
+
+
 def process_sakura_url(url,batch=False,pause_length=2):    
     #colspecs = [(0,5),(5,9),(9,16),(16,23),(23,30),(30,37),(37,44),(44,51),(51,58),(58,65),(65,72),(72,78),(78,86),(86,None)]
 
@@ -77,7 +92,7 @@ def process_sakura_url(url,batch=False,pause_length=2):
 
     #Find all of the character locations of each year
     year_iter = re.finditer("\d{4}", line)
-    year_indices = [(m.start(0),m.end(0)+2) for m in year_iter]
+    year_indices = [(m.start(0),m.end(0)+3) for m in year_iter]
 
     #Pick the ending character of the last year so we can add the last two columns.
     end_char = year_indices[-1][1]
@@ -121,8 +136,10 @@ def process_sakura_url(url,batch=False,pause_length=2):
             else:
                 bloom_df[col] = bloom_df[col] + f' {col}'
             bloom_df[col] = pd.to_datetime(bloom_df[col],errors='coerce',format="%m %d %Y")
-            #TODO: Add in a check for dates that got parsed incorrectly
+            
             #   Data Assertion: No dates should exist in the current year after October. If they exist, they should be in the previous year.
+            if bloom_df.loc[bloom_df[col] > f'{col}-10-01',col].any():
+                bloom_df.loc[bloom_df[col] > f'{col}-10-01',col] = bloom_df.loc[bloom_df[col] > f'{col}-10-01',col] - pd.DateOffset(years=1)
 
     # Translate the non date columns
     bloom_df.rename(columns={bloom_df.columns[0]: 'Site Name',
@@ -159,18 +176,92 @@ concated.drop_duplicates(inplace=True)
 concated.head()
 
 
-# +
-testing = process_sakura_url('https://www.data.jma.go.jp/sakura/data/sakura003_03.html')
+concated = concated.reset_index()
+batch_translation(concated,'Site Name')
+concated.set_index('Site Name',inplace=True)
 
-testing.tail()
+# +
+transposed = concated.T.drop_duplicates(keep='last')
+bloom_start = transposed.T
+
+bloom_start.drop('index',axis=1,inplace=True)
+display(bloom_start.columns)
 # -
 
+# # Troubleshooting
+# This is my area for misc troubleshooting. Fully working code is above this.
 
+trans = Translator()
+trans.translate('山形').src
+
+with pd.option_context('display.max_rows', None):
+    display(transposed.T['30 Year Average 1981-2010'])
+
+with pd.option_context('display.max_rows', None):
+    print(concated.loc[['津']].T)
+
+debug_print=True
+process_sakura_url('https://www.data.jma.go.jp/sakura/data/sakura003_03.html')
+
+# +
+import re
+debug_print = True
+
+bloom_req = requests.get('https://www.data.jma.go.jp/sakura/data/sakura003_03.html')
+bloom_content = BeautifulSoup(bloom_req.content, 'lxml')
+
+# Convert the text table to a string IO so that pandas can read it in.
+#print(bloom_content.find(id='main').pre.text)
+bloom_string = StringIO(bloom_content.find(id='main').pre.text)
+
+String = '地点名　     1953   1954   1955   1956   1957   1958   1959   1960   平年値   代替種目'
+String2 = '地点名　     2011   2012   2013   2014   2015   2016   2017   2018   2019   2020   平年値   代替種目'
+
+#Find the first real line so we can dynmiacally determine the column spacings
+for line in bloom_string:
+    if line.isspace() == False:
+        break;
+
+#Find all of the character locations of each year
+year_iter = re.finditer("\d{4}", line)
+year_indices = [(m.start(0),m.end(0)+3) for m in year_iter]
+
+#Pick the ending character of the last year so we can add the last two columns.
+end_char = year_indices[-1][1]
+
+dynamic_colspecs = [(0,5),(5,9)]
+end_colspecs = [(end_char,end_char+8),(end_char+8,None)]
+
+# Put everything together in the same list
+dynamic_colspecs.extend(year_indices)
+dynamic_colspecs.extend(end_colspecs)
+
+print(dynamic_colspecs)
+# Reset the string stream so we can re-parse the entire thing.
+bloom_string.seek(0)
+
+if debug_print:
+    print(bloom_string.getvalue())
+
+tst_names = ['地点名', 'Unnamed: 1', '1953', '1954', '1955','1956','1957','1958','1959','1960','平年値','代替種目']
+unparsed_data = pd.read_fwf(bloom_string,header=0,colspecs=dynamic_colspecs,true_values=['*'])
+with pd.option_context('display.max_rows', None):
+    if debug_print:
+        display(unparsed_data)
+# +
+debug_print = False
+testing = process_sakura_url('https://www.data.jma.go.jp/sakura/data/sakura003_03.html')
+
+print(testing.iloc[1])
+# -
+testing.loc[testing['1989'] > '1989-10-01','1989']
+
+
+testing.loc[testing['1989'] < '1989-01-01','1989']
 
 concated.T.loc[concated.T.duplicated()]
 
-transposed = concated.T.drop_duplicates(keep='last')
-transposed.T.columns
+
 
 # +
 with pd.option_context('display.max_rows', None):
@@ -195,48 +286,6 @@ debug_print = True
 #process_sakura_url('https://www.data.jma.go.jp/sakura/data/sakura003_01.html')
 
 # +
-import re
-debug_print = False
-
-bloom_req = requests.get('https://www.data.jma.go.jp/sakura/data/sakura003_03.html')
-bloom_content = BeautifulSoup(bloom_req.content, 'lxml')
-
-# Convert the text table to a string IO so that pandas can read it in.
-#print(bloom_content.find(id='main').pre.text)
-bloom_string = StringIO(bloom_content.find(id='main').pre.text)
-
-String = '地点名　     1953   1954   1955   1956   1957   1958   1959   1960   平年値   代替種目'
-String2 = '地点名　     2011   2012   2013   2014   2015   2016   2017   2018   2019   2020   平年値   代替種目'
-
-for line in bloom_string:
-    if line.isspace() == False:
-        break;
-
-iter = re.finditer("\d{4}", line)
-indices = [(m.start(0),m.end(0)+3) for m in iter]
-#print(indices)
-
-end_char = indices[-1][1]
-
-base_colspecs = [(0,5),(5,9)]
-end_colspecs = [(end_char,end_char+8),(end_char+8,None)]
-
-original_colspecs = [(0,5),(5,9),(9,16),(16,23),(23,30),(30,37),(37,44),(44,51),(51,58),(58,65),(65,72),(72,78),(78,86),(86,None)]
-base_colspecs.extend(indices)
-base_colspecs.extend(end_colspecs)
-print(base_colspecs)
-
-bloom_string.seek(0)
-
-if debug_print:
-    print(bloom_string.getvalue())
-
-tst_names = ['地点名', 'Unnamed: 1', '1953', '1954', '1955','1956','1957','1958','1959','1960','平年値','代替種目']
-unparsed_data = pd.read_fwf(bloom_string,header=0,colspecs=base_colspecs,true_values=['*'])
-with pd.option_context('display.max_rows', None):
-    if debug_print:
-        display(unparsed_data)
-# +
 col = '1990'
 
 has_stuff = unparsed_data[col].str.contains('#',na=False)
@@ -246,11 +295,7 @@ no_stuff = ~unparsed_data[col].str.contains('#',na=False)
 
 unparsed_data.loc[has_stuff,col] = unparsed_data.loc[has_stuff,col].str.strip('#') + f' {int(col)-1}'
 
-# +
 unparsed_data.loc[has_stuff,'1989'].str.replace("#","")
-
-
-# -
 
 bloom_content.title.text
 
