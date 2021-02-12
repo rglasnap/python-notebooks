@@ -176,20 +176,50 @@ concated.drop_duplicates(inplace=True)
 concated.head()
 
 
+# +
+# Translations
 concated = concated.reset_index()
 batch_translation(concated,'Site Name')
 concated.set_index('Site Name',inplace=True)
 
-# +
-transposed = concated.T.drop_duplicates(keep='last')
-bloom_start = transposed.T
+# Google translate doesn't properly translate the notes column, so I'm doing that manually.
+notes_dict = {'えぞやまざくら': 'Sargent cherry (Prunus sargentii)',
+              'ちしまざくら': 'Kurile Island Cherry (Cerasus nipponica var. kurilensis)',
+             'ひかんざくら': 'Taiwan cherry (Prunus campanulata)',
+              '（注）': 'Note: Translation pending'}
 
-bloom_start.drop('index',axis=1,inplace=True)
-display(bloom_start.columns)
+# +
+observed_col = concated['Currently Being Observed'].iloc[:,0]
+transposed = concated.T.drop_duplicates(keep='last')
+transposed.drop('Currently Being Observed',inplace=True)
+
+bloom_start = transposed.T
+bloom_start.insert(0,'Currently Being Observed',observed_col); 
+
+bloom_start.Notes = bloom_start.Notes.map(notes_dict)
 # -
+
+bloom_start.columns
 
 # # Troubleshooting
 # This is my area for misc troubleshooting. Fully working code is above this.
+
+# +
+translator = Translator()
+
+notes_map = pd.DataFrame(bloom_start['Notes'].unique(), columns=['jp'])
+
+notes_map['en'] = notes_map['jp'].apply(translator.translate).apply(getattr, args=('text',))
+# -
+
+notes_map
+
+notes_dict = {'えぞやまざくら': 'Sargent cherry (Prunus sargentii)',
+              'ちしまざくら': 'Kurile Island Cherry (Cerasus nipponica var. kurilensis)',
+             'ひかんざくら': 'Taiwan cherry (Prunus campanulata)',
+              '（注）': 'Note: Translation pending'}
+
+concated['Currently Being Observed'].iloc[:,0]
 
 trans = Translator()
 trans.translate('山形').src
