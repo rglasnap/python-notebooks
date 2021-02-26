@@ -38,7 +38,7 @@
 # \-: The dash represents no observation value. <br>
 # 平年値: This column is the normal year average from 1981 to 2010. <br>
 # \#: This represents that the observation was made in the previous year. <br>
-# 注: This denotes some sort of change in observation. I'm still working on the translation.
+# 注: Until 1994 the observations at Kutchan were Sargent Cherries. From 1995 to 2006 they were Yoshino Cherries.
 #
 
 # +
@@ -71,7 +71,8 @@ def batch_translation(df, column_src, batch_size=100):
         time.sleep(10)
 
 
-def process_sakura_url(url,batch=False,pause_length=2):    
+# +
+def extract_sakura_data(url,batch=False,pause_length=2):    
     #colspecs = [(0,5),(5,9),(9,16),(16,23),(23,30),(30,37),(37,44),(44,51),(51,58),(58,65),(65,72),(72,78),(78,86),(86,None)]
 
     # Be nice to the endpoint and wait a bit if we're doing batch processing of multiple function calls. 
@@ -135,7 +136,7 @@ def process_sakura_url(url,batch=False,pause_length=2):
                 bloom_df[col] = bloom_df[col].str.replace("#","")
             else:
                 bloom_df[col] = bloom_df[col] + f' {col}'
-            bloom_df[col] = pd.to_datetime(bloom_df[col],errors='coerce',format="%m %d %Y")
+            bloom_df[col] = pd.to_datetime(bloom_df[col],errors='coerce',exact=False,format="%m %d %Y")
             
             #   Data Assertion: No dates should exist in the current year after October. If they exist, they should be in the previous year.
             if bloom_df.loc[bloom_df[col] > f'{col}-10-01',col].any():
@@ -153,11 +154,44 @@ def process_sakura_url(url,batch=False,pause_length=2):
     # Note: There's probably a better way of doing this, but I haven't found it yet.
     bloom_df['30 Year Average 1981-2010'] = bloom_df['30 Year Average 1981-2010'].str.replace("#","")
     
+    # Fix the boolean data.
+    # There were set values for True, blank got converted into NaN.
+    bloom_df['Currently Being Observed'].fillna(False,inplace=True)
+    
     with pd.option_context('display.max_rows', None):
         if debug_print:
             display(bloom_df)
             
     return bloom_df
+
+#TODO: Come up with a more descriptive title that isn't super long.
+def combine_sakura_data(bloom_dfs):
+    
+    concated = pd.concat(bloom_dfs,axis=1)
+    concated.drop_duplicates(inplace=True)
+    
+    # Translations
+    concated = concated.reset_index()
+    batch_translation(concated,'Site Name')
+    concated.set_index('Site Name',inplace=True)
+
+    # Google translate doesn't properly translate the notes column, so I'm doing that manually.
+    notes_dict = {'えぞやまざくら': 'Sargent cherry (Prunus sargentii)',
+                  'ちしまざくら': 'Kurile Island Cherry (Cerasus nipponica var. kurilensis)',
+                 'ひかんざくら': 'Taiwan cherry (Prunus campanulata)',
+                  '（注）': 'Until 1994 Sargent Cherry, from 1995 to 2006 they were Yoshino Cherry.'}
+    
+    observed_col = concated['Currently Being Observed'].iloc[:,0]
+    transposed = concated.T.drop_duplicates(keep='last')
+    transposed.drop('Currently Being Observed',inplace=True)
+
+    combined_blooms = transposed.T
+    combined_blooms.insert(0,'Currently Being Observed',observed_col);
+
+    combined_blooms.Notes = combined_blooms.Notes.map(notes_dict)
+    
+    return combined_blooms
+
 
 # +
 debug_print = False
@@ -169,40 +203,56 @@ bloom_urls = ['https://www.data.jma.go.jp/sakura/data/sakura003_00.html',
                      'https://www.data.jma.go.jp/sakura/data/sakura003_05.html',
                      'https://www.data.jma.go.jp/sakura/data/sakura003_06.html']
 
-bloom_dfs = [process_sakura_url(x,batch=True) for x in bloom_urls]
-# -
-concated = pd.concat(bloom_dfs,axis=1)
-concated.drop_duplicates(inplace=True)
-concated.head()
+bloom_dfs = [extract_sakura_data(x,batch=True) for x in bloom_urls]
+bloom_start = combine_sakura_data(bloom_dfs)
+# +
+debug_print = False
+full_bloom_urls = ['https://www.data.jma.go.jp/sakura/data/sakura004_00.html',
+                     'https://www.data.jma.go.jp/sakura/data/sakura004_01.html',
+                     'https://www.data.jma.go.jp/sakura/data/sakura004_02.html',
+                     'https://www.data.jma.go.jp/sakura/data/sakura004_03.html',
+                     'https://www.data.jma.go.jp/sakura/data/sakura004_04.html',
+                     'https://www.data.jma.go.jp/sakura/data/sakura004_05.html',
+                     'https://www.data.jma.go.jp/sakura/data/sakura004_06.html']
 
+full_bloom_dfs = [extract_sakura_data(x,batch=True) for x in full_bloom_urls]
+full_bloom = combine_sakura_data(full_bloom_dfs)
 
 # +
-# Translations
-concated = concated.reset_index()
-batch_translation(concated,'Site Name')
-concated.set_index('Site Name',inplace=True)
+# Sanity checks
+#    Full bloom is *ALWAYS* after the initial bloom. If it's not something somewhere is wrong.
 
-# Google translate doesn't properly translate the notes column, so I'm doing that manually.
-notes_dict = {'えぞやまざくら': 'Sargent cherry (Prunus sargentii)',
-              'ちしまざくら': 'Kurile Island Cherry (Cerasus nipponica var. kurilensis)',
-             'ひかんざくら': 'Taiwan cherry (Prunus campanulata)',
-              '（注）': 'Note: Translation pending'}
+date_cols = [col for col in bloom_start.columns if str.isnumeric(col)]
+broken_dates = full_bloom[date_cols].fillna(pd.Timestamp('2021-01-01')) < bloom_start[date_cols].fillna(pd.Timestamp('1950-01-01'))
 
-# +
-observed_col = concated['Currently Being Observed'].iloc[:,0]
-transposed = concated.T.drop_duplicates(keep='last')
-transposed.drop('Currently Being Observed',inplace=True)
-
-bloom_start = transposed.T
-bloom_start.insert(0,'Currently Being Observed',observed_col); 
-
-bloom_start.Notes = bloom_start.Notes.map(notes_dict)
+broken_dates.any().any()
 # -
 
-bloom_start.columns
+# Translations Final Fixes
+bloom_start = bloom_start.rename(index={"Iriomotei sand": "Iriomote Island"},errors="raise")
+full_bloom = full_bloom.rename(index={"Iriomotei sand": "Iriomote Island"},errors="raise")
+
+bloom_start.to_csv('sakura_first_bloom_dates.csv')
+full_bloom.to_csv('sakura_full_bloom_dates.csv')
 
 # # Troubleshooting
 # This is my area for misc troubleshooting. Fully working code is above this.
+
+bloom_start = bloom_start.rename(index={"Iriomotei sand": "Iriomote Island"},errors="raise")
+
+full_bloom
+
+full_bloom[full_bloom[date_cols].fillna(pd.Timestamp('2020-01-02')) < bloom_start[date_cols].fillna(pd.Timestamp('2020-01-01'))]
+
+# +
+debug_print = True
+test_url = 'https://www.data.jma.go.jp/sakura/data/sakura004_00.html'
+
+test_df = extract_sakura_data(test_url)
+# -
+
+test_df['Currently Being Observed'].fillna(False,inplace=True)
+test_df.head()
 
 # +
 translator = Translator()
