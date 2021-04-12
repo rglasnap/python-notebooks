@@ -42,6 +42,8 @@ site_list.loc[site_list['Site Name'] == 'Kyoto']
 site_list.shape
 
 # %% codecell
+
+## IDEA: get to the index.php first, see if I get a cookie that ends in CORS, and use that cookie to make the post request
 site = 'https://www.data.jma.go.jp/gmd/risk/obsdl/show/table'
 site2 = 'https://www.data.jma.go.jp/gmd/risk/obsdl/index.php'
 data = {'stationNumList': ["s47759"],
