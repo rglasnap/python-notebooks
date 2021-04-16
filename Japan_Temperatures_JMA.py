@@ -17,6 +17,8 @@ import sys
 import pandas as pd
 import numpy as np
 import requests as req
+from bs4 import BeautifulSoup
+
 # %% codecell
 with open('Japan Temp Data/smaster.index', encoding='shift_jis') as file:
     for i in range(5):
@@ -46,24 +48,6 @@ site_list.shape
 ## IDEA: get to the index.php first, see if I get a cookie that ends in CORS, and use that cookie to make the post request
 site = 'https://www.data.jma.go.jp/gmd/risk/obsdl/show/table'
 site2 = 'https://www.data.jma.go.jp/gmd/risk/obsdl/index.php'
-data = {'stationNumList': ["s47759"],
-    'aggrgPeriod': 1,
-    'elementNumList': [["201",""]],
-    'interAnnualFlag': 1,
-    'ymdList': ["2020","2021","1","1","1","1"],
-    'optionNumList': [],
-    'downloadFlag': True,
-    'rmkFlag': 1,
-    'disconnectFlag': 1,
-    'youbiFlag': 0,
-    'fukenFlag': 0,
-    'kijiFlag': 0,
-    'huukouFlag': 0,
-    'csvFlag': 1,
-    'jikantaiFlag': 0,
-    'jikantaiList': [],
-    'ymdLiteral': 1,
-    'PHPSESSID': 'b1mththn5adl374iv59udc0976'}
 
 headers = {
 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
@@ -73,13 +57,42 @@ headers = {
 'Origin': 'https://www.data.jma.go.jp',
 'Referer': 'https://www.data.jma.go.jp/gmd/risk/obsdl/index.php'}
 
-response = req.post(site,data=data, headers=headers)
+sess = req.session()
+
+orig_page = sess.get(site2)
+orig_soup = BeautifulSoup(orig_page.content)
+
+print(orig_soup.select('#sid')[0]['value'])
+
+data = {'stationNumList': '["s47759"]',
+    'aggrgPeriod': 1,
+    'elementNumList': [["201",""]],
+    'interAnnualFlag': 1,
+    'ymdList': '["2020","2021","1","1","1","1"]',
+    'optionNumList': '[]',
+    'downloadFlag': True,
+    'rmkFlag': 1,
+    'disconnectFlag': 1,
+    'youbiFlag': 0,
+    'fukenFlag': 0,
+    'kijiFlag': 0,
+    'huukouFlag': 0,
+    'csvFlag': 1,
+    'jikantaiFlag': 0,
+    'jikantaiList': '[]',
+    'ymdLiteral': 1,
+    'PHPSESSID':  orig_soup.select('#sid')[0]['value'] }
+
+
+response = sess.post(site,data=data)
 response.headers
+
+response.request.body
 
 print(response.url)
 
 print(response.text)
-from bs4 import BeautifulSoup
+
 
 testcase = BeautifulSoup(response.content)
 
