@@ -46,6 +46,9 @@ site_list.shape
 # %% codecell
 
 ## IDEA: get to the index.php first, see if I get a cookie that ends in CORS, and use that cookie to make the post request
+## For posterity
+## JQuery that selects Osaka once the prefecture is loaded.
+## $("div.station.stmark[title*='大阪']").last()[0].click()
 site = 'https://www.data.jma.go.jp/gmd/risk/obsdl/show/table'
 site2 = 'https://www.data.jma.go.jp/gmd/risk/obsdl/index.php'
 
