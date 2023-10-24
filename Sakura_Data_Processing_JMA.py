@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: light
 #       format_version: '1.5'
-#       jupytext_version: 1.9.1
+#       jupytext_version: 1.15.2
 #   kernelspec:
 #     display_name: Python 3
 #     language: python
@@ -41,7 +41,6 @@
 # 注: Until 1994 the observations at Kutchan were Sargent Cherries. From 1995 to 2006 they were Yoshino Cherries.
 #
 
-# +
 import pandas as pd
 import numpy as np
 import urllib
@@ -51,9 +50,7 @@ import lxml
 import time
 import re
 from io import StringIO
-
 from googletrans import Translator
-# -
 
 # Workaround because I'm on an old version of pandas
 pd.set_option("display.max_colwidth", 10000)
@@ -65,7 +62,7 @@ def batch_translation(df, column_src, batch_size=100):
         # Spawn a new translator session to see if that gets past the 429 code from Google.
         translator = Translator()
         translator.raise_Exception = True
-        df.loc[idx:idx+batch_size,column_src] = df.loc[idx:idx+batch_size,column_src].apply(translator.translate, src='ja').apply(getattr, args=('text',))
+        df.loc[idx:idx+batch_size-1,column_src] = df.loc[idx:idx+batch_size-1,column_src].apply(translator.translate, src='ja').apply(getattr, args=('text',))
         idx = idx+batch_size
         print(f"Current index: {idx} of {df[column_src].size}")
         time.sleep(10)
@@ -112,7 +109,9 @@ def extract_sakura_data(url,batch=False,pause_length=2):
     if debug_print:
         print(bloom_string.getvalue())
 
-    bloom_df = pd.read_fwf(bloom_string,header=0,colspecs=dynamic_colspecs,true_values=['*'])
+    bloom_df = pd.read_fwf(bloom_string,header=2,colspecs=dynamic_colspecs,true_values=['*'])
+    if debug_print:
+        print(bloom_df.head())
 
     # Get rid of the extra headers that showed up for readability on a web page.
     bloom_df.columns = bloom_df.columns.str.strip()
@@ -139,8 +138,8 @@ def extract_sakura_data(url,batch=False,pause_length=2):
             bloom_df[col] = pd.to_datetime(bloom_df[col],errors='coerce',exact=False,format="%m %d %Y")
             
             #   Data Assertion: No dates should exist in the current year after October. If they exist, they should be in the previous year.
-            if bloom_df.loc[bloom_df[col] > f'{col}-10-01',col].any():
-                bloom_df.loc[bloom_df[col] > f'{col}-10-01',col] = bloom_df.loc[bloom_df[col] > f'{col}-10-01',col] - pd.DateOffset(years=1)
+            #if bloom_df.loc[bloom_df[col] > pd.to_datetime(f'{col}-10-01'),col].any():
+            #    bloom_df.loc[bloom_df[col] > pd.to_datetime(f'{col}-10-01'),col] = bloom_df.loc[bloom_df[col] > f'{col}-10-01',col] - pd.DateOffset(years=1)
 
     # Translate the non date columns
     bloom_df.rename(columns={bloom_df.columns[0]: 'Site Name',
@@ -172,7 +171,9 @@ def combine_sakura_data(bloom_dfs):
     
     # Translations
     concated = concated.reset_index()
-    batch_translation(concated,'Site Name')
+    concated['Site Name'] = concated['Site Name'] + ', 日本'
+    batch_translation(concated,'Site Name',batch_size=10)
+    concated['Site Name'] = concated['Site Name'].str.replace(', Japan', "")
     concated.set_index('Site Name',inplace=True)
 
     # Google translate doesn't properly translate the notes column, so I'm doing that manually.
@@ -201,7 +202,8 @@ bloom_urls = ['https://www.data.jma.go.jp/sakura/data/sakura003_00.html',
                      'https://www.data.jma.go.jp/sakura/data/sakura003_03.html',
                      'https://www.data.jma.go.jp/sakura/data/sakura003_04.html',
                      'https://www.data.jma.go.jp/sakura/data/sakura003_05.html',
-                     'https://www.data.jma.go.jp/sakura/data/sakura003_06.html']
+                     'https://www.data.jma.go.jp/sakura/data/sakura003_06.html',
+                     'https://www.data.jma.go.jp/sakura/data/sakura003_07.html']
 
 bloom_dfs = [extract_sakura_data(x,batch=True) for x in bloom_urls]
 bloom_start = combine_sakura_data(bloom_dfs)
@@ -213,7 +215,8 @@ full_bloom_urls = ['https://www.data.jma.go.jp/sakura/data/sakura004_00.html',
                      'https://www.data.jma.go.jp/sakura/data/sakura004_03.html',
                      'https://www.data.jma.go.jp/sakura/data/sakura004_04.html',
                      'https://www.data.jma.go.jp/sakura/data/sakura004_05.html',
-                     'https://www.data.jma.go.jp/sakura/data/sakura004_06.html']
+                     'https://www.data.jma.go.jp/sakura/data/sakura004_06.html',
+                     'https://www.data.jma.go.jp/sakura/data/sakura004_07.html']
 
 full_bloom_dfs = [extract_sakura_data(x,batch=True) for x in full_bloom_urls]
 full_bloom = combine_sakura_data(full_bloom_dfs)
@@ -223,20 +226,42 @@ full_bloom = combine_sakura_data(full_bloom_dfs)
 #    Full bloom is *ALWAYS* after the initial bloom. If it's not something somewhere is wrong.
 
 date_cols = [col for col in bloom_start.columns if str.isnumeric(col)]
-broken_dates = full_bloom[date_cols].fillna(pd.Timestamp('2021-01-01')) < bloom_start[date_cols].fillna(pd.Timestamp('1950-01-01'))
+broken_dates = full_bloom[date_cols].fillna(pd.Timestamp('2024-01-01')) < bloom_start[date_cols].fillna(pd.Timestamp('1950-01-01'))
 
 broken_dates.any().any()
-# -
 
+# +
 # Translations Final Fixes
-bloom_start = bloom_start.rename(index={"Iriomotei sand": "Iriomote Island"},errors="raise")
-full_bloom = full_bloom.rename(index={"Iriomotei sand": "Iriomote Island"},errors="raise")
+#bloom_start = bloom_start.rename(index={"Iriomotei sand": "Iriomote Island"},errors="raise")
+#full_bloom = full_bloom.rename(index={"Iriomotei sand": "Iriomote Island"},errors="raise")
+# -
 
 bloom_start.to_csv('sakura_first_bloom_dates.csv')
 full_bloom.to_csv('sakura_full_bloom_dates.csv')
 
 # # Troubleshooting
 # This is my area for misc troubleshooting. Fully working code is above this.
+
+# +
+df = bloom_dfs[0].reset_index()
+idx = 0
+batch_size = 10
+column_src = "Site Name"
+
+
+
+while idx < df[column_src].size:
+    # Spawn a new translator session to see if that gets past the 429 code from Google.
+    translator = Translator()
+    translator.raise_Exception = True
+    df.loc[idx:idx+batch_size,column_src] = df.loc[idx:idx+batch_size,column_src].apply(translator.translate, src='ja').apply(getattr, args=('text',))
+    idx = idx+batch_size
+    print(f"Current index: {idx} of {df[column_src].size}")
+    time.sleep(10)
+
+#df.loc[idx:idx+batch_size,column_src] = df.loc[idx:idx+batch_size,column_src].apply(translator.translate, src='ja').apply(getattr, args=('text',))
+#print(f"Current index: {idx} of {df[column_src].size}")
+# -
 
 bloom_start = bloom_start.rename(index={"Iriomotei sand": "Iriomote Island"},errors="raise")
 
